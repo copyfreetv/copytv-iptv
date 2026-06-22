@@ -1,9 +1,13 @@
 export default async function handler(req, res) {
 
   const target =
-    "http://195.128.27.223:8080/live/play/ZUhCUFJHNUdLM2xUTURSUFVHYzJlVGQzZGxGVmVFcENWa2sxUjNwYVlrSkVTMWRVVUhrNU9HZ3pNRDA9/2432261";
+    "http://45.139.122.199:2095/live/ftU3Se0G/nSgzwb7/2432261.m3u8";
 
-  const response = await fetch(target);
+  const response = await fetch(target, {
+    headers: {
+      "User-Agent": "Mozilla/5.0"
+    }
+  });
 
   const text = await response.text();
 
