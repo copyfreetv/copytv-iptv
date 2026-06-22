@@ -127,180 +127,414 @@
     </div>
 
     <script>
-    // ==========================
-    // PLAYLIST SETTINGS
-    // ==========================
+        // --- ส่วนที่แก้ไข: Proxy Settings แบบ Robust ---
+        // ลิงก์ต้นทาง
+       const PLAYLIST_URL =
+"https://raw.githubusercontent.com/copyfreetv/playlist/main/file.m3u";
+        
+        var channels = [];
+        var categories = {};
+        var currentPlayer = 'mx'; 
+        var currentUrl = '';
+        var currentChannelId = null;
+        var currentOpenCategory = null;
+        var shakaInstance = null;
+        var jwInstance = null;
+        var videoJsPlayer = null;
+        var hlsObj = null;
 
-    const PLAYLIST_URL =
-    "https://raw.githubusercontent.com/copyfreetv/playlist/main/file.m3u";
-
-    var channels = [];
-    var categories = {};
-    var currentPlayer = 'mx';
-    var currentUrl = '';
-    var currentChannelId = null;
-    var currentOpenCategory = null;
-    var shakaInstance = null;
-    var jwInstance = null;
-    var videoJsPlayer = null;
-    var hlsObj = null;
-
-    function toggleSidebar() {
-        var sidebar = document.getElementById('sidebar');
-        sidebar.classList.toggle('active');
-
-        if (window.innerWidth > 768) {
-            sidebar.classList.toggle('hidden');
+        function toggleSidebar() {
+            var sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('active');
+            if(window.innerWidth > 768) sidebar.classList.toggle('hidden');
         }
-    }
 
-    // ==========================
-    // LOAD PLAYLIST
-    // ==========================
+        // --- ฟังก์ชันใหม่: ระบบโหลดแบบ Multi-Proxy Fallback ---
+        async function fetchAndParsePlaylist() {
 
-    async function fetchAndParsePlaylist() {
+    const listElement =
+        document.getElementById('channel-list');
 
-        const listElement =
-            document.getElementById('channel-list');
+    try {
 
-        try {
+        listElement.innerHTML =
+            '<div class="loading-text">กำลังโหลด Playlist...</div>';
 
-            listElement.innerHTML =
-                '<div class="loading-text">กำลังโหลด Playlist...</div>';
+        const response =
+            await fetch(PLAYLIST_URL);
 
-            const response =
-                await fetch(PLAYLIST_URL);
-
-            if (!response.ok) {
-                throw new Error(
-                    'HTTP ' + response.status
-                );
-            }
-
-            const text =
-                await response.text();
-
-            if (!text ||
-                text.length < 10) {
-
-                throw new Error(
-                    'Playlist ว่าง'
-                );
-            }
-
-            console.log(
-                'Playlist loaded',
-                text.length
+        if (!response.ok) {
+            throw new Error(
+                `Status ${response.status}`
             );
-
-            parseM3U(text);
-
-        } catch (err) {
-
-            console.error(err);
-
-            listElement.innerHTML =
-                '<div class="loading-text" style="color:red">' +
-                'โหลด Playlist ไม่สำเร็จ<br>' +
-                err.message +
-                '</div>';
         }
+
+        const text =
+            await response.text();
+
+        if (!text || text.length < 10) {
+            throw new Error(
+                'Playlist ว่าง'
+            );
+        }
+
+        parseM3U(text);
+
+    } catch (error) {
+
+        console.error(error);
+
+        listElement.innerHTML =
+            '<div class="loading-text" style="color:red">' +
+            'โหลด Playlist ไม่สำเร็จ<br>' +
+            error.message +
+            '</div>';
     }
+}
 
-    // ==========================
-    // PARSE M3U
-    // ==========================
+        function parseM3U(m3uText) {
+            channels = [];
+            categories = {};
+            const lines = m3uText.split('\n');
+            let currentChannel = {};
+            let channelId = 1;
+            let currentGroup = 'ทั่วไป'; // หมวดหมู่เริ่มต้น
 
-    function parseM3U(m3uText) {
-
-        channels = [];
-        categories = {};
-
-        const lines =
-            m3uText.split('\n');
-
-        let currentChannel = {};
-        let channelId = 1;
-        let currentGroup = 'ทั่วไป';
-
-        for (let i = 0; i < lines.length; i++) {
-
-            let line =
-                lines[i].trim();
-
-            if (
-                line.startsWith('#EXTINF:')
-            ) {
-
-                currentChannel = {};
-
-                const commaIndex =
-                    line.lastIndexOf(',');
-
-                currentChannel.name =
-                    commaIndex !== -1
-                        ? line.substring(commaIndex + 1).trim()
-                        : 'Unknown';
-
-                const logoMatch =
-                    line.match(/tvg-logo="([^"]*)"/i);
-
-                currentChannel.logo =
-                    logoMatch
-                        ? logoMatch[1]
-                        : 'https://via.placeholder.com/50?text=TV';
-
-                const groupMatch =
-                    line.match(/group-title="([^"]*)"/i);
-
-                currentGroup =
-                    groupMatch
-                        ? groupMatch[1]
-                        : 'ทั่วไป';
-
-                currentChannel.category =
-                    currentGroup;
-
-                currentChannel.id =
-                    'channel-' + channelId++;
-
-                if (i + 1 < lines.length) {
-
-                    const nextLine =
-                        lines[i + 1].trim();
-
-                    if (
-                        nextLine &&
-                        !nextLine.startsWith('#')
-                    ) {
-
-                        currentChannel.url =
-                            nextLine;
-
-                        channels.push(
-                            currentChannel
-                        );
-
-                        if (
-                            !categories[currentGroup]
-                        ) {
-                            categories[currentGroup] = [];
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                
+                if (line.startsWith('#EXTINF:')) {
+                    currentChannel = {};
+                    
+                    // ดึงข้อมูลจาก EXTINF line
+                    const extinfLine = line;
+                    
+                    // หาชื่อช่อง (หลังคอมม่า)
+                    const commaIndex = extinfLine.lastIndexOf(',');
+                    if (commaIndex !== -1) {
+                        currentChannel.name = extinfLine.substring(commaIndex + 1).trim();
+                    } else {
+                        currentChannel.name = 'Unknown Channel';
+                    }
+                    
+                    // ดึงโลโก้
+                    const logoMatch = extinfLine.match(/tvg-logo="([^"]*)"/i) || extinfLine.match(/tvg-logo=([^" ]+)/i);
+                    currentChannel.logo = logoMatch ? logoMatch[1] : 'https://via.placeholder.com/50?text=TV';
+                    
+                    // ดึงหมวดหมู่ (group-title)
+                    const groupMatch = extinfLine.match(/group-title="([^"]*)"/i) || extinfLine.match(/group-title=([^" ]+)/i);
+                    currentGroup = groupMatch ? groupMatch[1].trim() : 'ทั่วไป';
+                    
+                    currentChannel.category = currentGroup;
+                    currentChannel.id = 'channel-' + channelId++;
+                    
+                    // ตรวจสอบบรรทัดถัดไปสำหรับ URL
+                    if (i + 1 < lines.length) {
+                        let nextLine = lines[i + 1].trim();
+                        if (nextLine && !nextLine.startsWith('#')) {
+                            currentChannel.url = nextLine;
+                            channels.push(currentChannel);
+                            
+                            // จัดกลุ่มตามหมวดหมู่
+                            if (!categories[currentGroup]) {
+                                categories[currentGroup] = [];
+                            }
+                            categories[currentGroup].push(currentChannel);
+                            
+                            i++; // ข้ามบรรทัด URL
                         }
-
-                        categories[currentGroup]
-                            .push(currentChannel);
-
-                        i++;
                     }
                 }
             }
+            
+            console.log("Parsed categories:", Object.keys(categories)); // Debug log
+            console.log("Total channels:", channels.length); // Debug log
+            
+            renderCategories();
         }
 
-        renderCategories();
-    }
+        function renderCategories() {
+            var list = document.getElementById('channel-list');
+            list.innerHTML = '';
+            
+            if(Object.keys(categories).length === 0) { 
+                list.innerHTML = '<div class="loading-text">ไม่พบรายการช่องในไฟล์ M3U<br>หรือรูปแบบไฟล์ไม่ถูกต้อง</div>'; 
+                return; 
+            }
 
-    window.onload =
-        fetchAndParsePlaylist;
-</script>
+            // เรียงลำดับหมวดหมู่ โดยให้หมวดหมู่ที่มีชื่อว่า "Digital TV", "TV", "ทีวี" อยู่บนสุด
+            var sortedCategories = Object.keys(categories).sort((a, b) => {
+                const aLower = a.toLowerCase();
+                const bLower = b.toLowerCase();
+                
+                // จัดลำดับความสำคัญของหมวดหมู่
+                const priority = {
+                    'digital tv': 1,
+                    'ทีวีดิจิตอล': 1,
+                    'tv': 2,
+                    'ทีวี': 2,
+                    'news': 3,
+                    'ข่าว': 3,
+                    'sport': 4,
+                    'กีฬา': 4,
+                    'movie': 5,
+                    'หนัง': 5
+                };
+                
+                const aPriority = priority[aLower] || 99;
+                const bPriority = priority[bLower] || 99;
+                
+                if (aPriority !== bPriority) {
+                    return aPriority - bPriority;
+                }
+                
+                return a.localeCompare(b);
+            });
+
+            sortedCategories.forEach(function(categoryName, index) {
+                // สร้างหัวข้อหมวดหมู่
+                var categoryDiv = document.createElement('div');
+                categoryDiv.className = 'category';
+                categoryDiv.id = 'category-' + categoryName.replace(/\s+/g, '-').replace(/[^\w\-]/g, '');
+                
+                var header = document.createElement('div');
+                header.className = 'category-header';
+                
+                // เปิดหมวดหมู่แรกโดยอัตโนมัติถ้าไม่มี Digital TV
+                if (index === 0) {
+                    header.classList.add('active');
+                    currentOpenCategory = categoryDiv.id;
+                }
+                
+                header.setAttribute('data-category', categoryDiv.id);
+                header.onclick = function() { toggleCategory(this); };
+                
+                var title = document.createElement('span');
+                title.innerText = categoryName + ' (' + categories[categoryName].length + ')';
+                
+                var toggle = document.createElement('span');
+                toggle.className = 'category-toggle';
+                toggle.innerText = '▼';
+                
+                if (index === 0) {
+                    toggle.classList.remove('collapsed');
+                } else {
+                    toggle.classList.add('collapsed');
+                }
+                
+                header.appendChild(title);
+                header.appendChild(toggle);
+                
+                // สร้างส่วนเนื้อหาของหมวดหมู่
+                var content = document.createElement('div');
+                content.className = 'category-content';
+                if (index === 0) {
+                    content.classList.add('expanded');
+                }
+                
+                // เพิ่มช่องรายการในหมวดหมู่
+                categories[categoryName].forEach(function(channel) {
+                    var item = document.createElement('div');
+                    item.className = 'channel-item';
+                    item.id = channel.id;
+                    item.onclick = function() { selectChannel(channel, this); };
+                    
+                    var img = document.createElement('img');
+                    img.src = channel.logo;
+                    img.onerror = function() { 
+                        this.src = 'https://via.placeholder.com/50x50/333/fff?text=' + 
+                                  encodeURIComponent(channel.name.substring(0, 2).toUpperCase()); 
+                    };
+                    
+                    var span = document.createElement('span');
+                    span.innerText = channel.name;
+                    
+                    item.appendChild(img); 
+                    item.appendChild(span); 
+                    content.appendChild(item);
+                });
+                
+                categoryDiv.appendChild(header);
+                categoryDiv.appendChild(content);
+                list.appendChild(categoryDiv);
+            });
+            
+            // แสดงข้อความสรุป
+            var totalChannels = channels.length;
+            var totalCategories = sortedCategories.length;
+            var summary = document.createElement('div');
+            summary.className = 'loading-text';
+            summary.style.fontSize = '12px';
+            summary.innerText = `พบ ${totalCategories} หมวดหมู่, ${totalChannels} ช่องรายการ`;
+            list.appendChild(summary);
+        }
+
+        function toggleCategory(headerElement) {
+            var categoryId = headerElement.getAttribute('data-category');
+            var categoryDiv = document.getElementById(categoryId);
+            var content = categoryDiv.querySelector('.category-content');
+            var toggle = headerElement.querySelector('.category-toggle');
+            
+            // ถ้าคลิกหมวดหมู่ที่กำลังเปิดอยู่ให้ปิด
+            if (content.classList.contains('expanded')) {
+                content.classList.remove('expanded');
+                toggle.classList.add('collapsed');
+                headerElement.classList.remove('active');
+                currentOpenCategory = null;
+            } else {
+                // ปิดหมวดหมู่อื่นๆ ที่เปิดอยู่
+                if (currentOpenCategory && currentOpenCategory !== categoryId) {
+                    var openCategory = document.getElementById(currentOpenCategory);
+                    if (openCategory) {
+                        var openContent = openCategory.querySelector('.category-content');
+                        var openToggle = openCategory.querySelector('.category-toggle');
+                        var openHeader = openCategory.querySelector('.category-header');
+                        
+                        openContent.classList.remove('expanded');
+                        openToggle.classList.add('collapsed');
+                        openHeader.classList.remove('active');
+                    }
+                }
+                
+                // เปิดหมวดหมู่ที่เลือก
+                content.classList.add('expanded');
+                toggle.classList.remove('collapsed');
+                headerElement.classList.add('active');
+                currentOpenCategory = categoryId;
+            }
+        }
+
+        function selectChannel(channel, element) {
+            // ลบการเลือกช่องเดิม
+            if (currentChannelId) {
+                var prevSelected = document.getElementById(currentChannelId);
+                if (prevSelected) {
+                    prevSelected.classList.remove('selected');
+                }
+            }
+            
+            // เลือกช่องใหม่
+            currentChannelId = channel.id;
+            element.classList.add('selected');
+            
+            // เล่นช่องที่เลือก
+            playChannel(channel);
+        }
+
+        function changePlayer(player, btn) {
+            currentPlayer = player;
+            var btns = document.querySelectorAll('.player-select-btn');
+            btns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if(currentUrl) playStream(currentUrl);
+        }
+
+        function playChannel(channel) {
+            document.getElementById('current-channel-name').innerText = channel.name;
+            currentUrl = channel.url;
+            playStream(currentUrl);
+            if(window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
+        }
+
+        // --- ฟังก์ชันสร้าง Intent แบบ Robust ---
+        function openIntent(url, packageName) {
+            // แยก Scheme (http/https) ออกจาก URL
+            var scheme = 'http';
+            var cleanUrl = url;
+            
+            if (url.startsWith('https://')) {
+                scheme = 'https';
+                cleanUrl = url.substring(8); // ตัด https://
+            } else if (url.startsWith('http://')) {
+                scheme = 'http';
+                cleanUrl = url.substring(7); // ตัด http://
+            }
+
+            // สร้าง Intent URI ตามมาตรฐาน Chrome Android
+            // รูปแบบ: intent://host/path#Intent;scheme=...;package=...;type=video/*;end;
+            var intentUri = "intent://" + cleanUrl + "#Intent;scheme=" + scheme + ";type=video/*;package=" + packageName + ";end";
+            
+            // สั่งเปิด
+            window.location.href = intentUri;
+        }
+
+        async function playStream(url) {
+            stopAllPlayers();
+            var statusLabel = document.getElementById('player-status');
+            statusLabel.style.display = 'block';
+
+            // ตรวจสอบว่าเป็น External App หรือไม่ (mx, wiseplay, iptv, exo)
+            if (currentPlayer === 'mx' || currentPlayer === 'wiseplay' || 
+                currentPlayer === 'iptv' || currentPlayer === 'exo') {
+                
+                statusLabel.innerText = "เปิดแอปพลิเคชันภายนอก...";
+                
+                if (currentPlayer === 'mx') {
+                    openIntent(url, "com.mxtech.videoplayer.ad");
+                } else if (currentPlayer === 'wiseplay') {
+                    openIntent(url, "com.wiseplay");
+                } else if (currentPlayer === 'iptv') {
+                    openIntent(url, "ru.iptvremote.android.iptv.pro");
+                } else if (currentPlayer === 'exo') {
+                    // ExoPlayer (JustPlayer)
+                    openIntent(url, "com.brouken.player"); 
+                }
+                
+            } else if (currentPlayer === 'shaka') {
+                statusLabel.innerText = "กำลังเล่น: Shaka Player";
+                var vid = document.getElementById('shaka-video');
+                vid.style.display = 'block';
+                shaka.polyfill.installAll();
+                if (shaka.Player.isBrowserSupported()) {
+                    shakaInstance = new shaka.Player(vid);
+                    try { await shakaInstance.load(url); vid.play(); } catch (e) { console.error('Error', e); }
+                }
+
+            } else if (currentPlayer === 'hls') {
+                statusLabel.innerText = "กำลังเล่น: HLS.js";
+                var vid = document.getElementById('hls-video');
+                vid.style.display = 'block';
+                if (Hls.isSupported()) {
+                    hlsObj = new Hls(); hlsObj.loadSource(url); hlsObj.attachMedia(vid);
+                    hlsObj.on(Hls.Events.MANIFEST_PARSED, function() { vid.play(); });
+                } else if (vid.canPlayType('application/vnd.apple.mpegurl')) { vid.src = url; vid.play(); }
+
+            } else if (currentPlayer === 'jw') {
+                statusLabel.innerText = "กำลังเล่น: JW Player";
+                document.getElementById('jw-player-div').style.display = 'block';
+                jwInstance = jwplayer("jw-player-div").setup({
+                    file: url, type: "hls", width: "100%", height: "100%", autostart: true
+                });
+
+            } else if (currentPlayer === 'videojs') {
+                statusLabel.innerText = "กำลังเล่น: Video.js";
+                var vjsEl = document.getElementById('vjs-video');
+                vjsEl.style.display = 'block';
+                if(!videoJsPlayer) videoJsPlayer = videojs('vjs-video');
+                videoJsPlayer.src({ type: 'application/x-mpegURL', src: url });
+                videoJsPlayer.play();
+            }
+        }
+
+        function stopAllPlayers() {
+            var shakaVid = document.getElementById('shaka-video');
+            shakaVid.pause(); shakaVid.style.display = 'none';
+            if (shakaInstance) { shakaInstance.destroy(); shakaInstance = null; }
+
+            var hlsVid = document.getElementById('hls-video');
+            hlsVid.pause(); hlsVid.style.display = 'none';
+            if(hlsObj) { hlsObj.destroy(); hlsObj = null; }
+
+            if(jwInstance) { jwInstance.remove(); jwInstance = null; }
+            document.getElementById('jw-player-div').style.display = 'none';
+
+            var vjsEl = document.getElementById('vjs-video');
+            vjsEl.style.display = 'none';
+            if(videoJsPlayer) videoJsPlayer.pause();
+        }
+
+        window.onload = fetchAndParsePlaylist;
+
+    </script>
 </body>
 </html>
